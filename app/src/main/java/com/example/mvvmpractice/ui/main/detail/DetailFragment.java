@@ -1,48 +1,235 @@
 package com.example.mvvmpractice.ui.main.detail;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
-import androidx.navigation.NavDirections;
-import androidx.navigation.Navigation;
+import androidx.lifecycle.Observer;
+import androidx.lifecycle.ViewModelProviders;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.Button;
+import android.widget.ImageView;
+import android.widget.ProgressBar;
+import android.widget.TextView;
 
+import com.bumptech.glide.Glide;
 import com.example.mvvmpractice.R;
-import com.example.mvvmpractice.ui.splash.SplashFragmentDirections;
+import com.example.mvvmpractice.model.DetailResponse;
+import com.example.mvvmpractice.model.Genre;
+import com.example.mvvmpractice.model.Movie;
+import com.example.mvvmpractice.model.TvShow;
+import com.example.mvvmpractice.ui.MainActivity;
+import com.example.mvvmpractice.ui.main.movie.MovieAdapter;
+
+import java.util.List;
+import java.util.Objects;
 
 import butterknife.BindView;
 import butterknife.ButterKnife;
+import util.Constants;
+
+import static java.lang.Integer.parseInt;
 
 public class DetailFragment extends Fragment {
 
-    @BindView(R.id.btnToMovieDetail)
-    Button button;
-    public DetailFragment() {
-        // Required empty public constructor
-    }
+    @BindView(R.id.detail_browser)
+    ImageView btnBrowser;
+    @BindView(R.id.rv_cast)
+    RecyclerView rvCasts;
+    @BindView(R.id.detail_poster)
+    ImageView detailPoster;
+    @BindView(R.id.detail_cover)
+    ImageView detailCover;
+    @BindView(R.id.detail_title)
+    TextView detailTitle;
+    @BindView(R.id.detail_date)
+    TextView detailDate;
+    @BindView(R.id.detail_genre)
+    TextView detailGenre;
+    @BindView(R.id.detail_duration)
+    TextView detailDuration;
+    @BindView(R.id.detail_description)
+    TextView detailDescription;
+    @BindView(R.id.detail_pb)
+    ProgressBar detailLoading;
+    @BindView(R.id.detail_lid)
+    ImageView detailLid;
+    private DetailViewModel viewModel;
+    private DetailCastAdapter castAdapter;
+    private String homepage, duration, episodes;
+    private Integer durationTemp, hour = 0, minute;
+    private Movie movie;
+    private TvShow tvShow;
 
+
+    public DetailFragment() {
+    }
 
 
     @Override
     public View onCreateView(LayoutInflater inflater, ViewGroup container,
                              Bundle savedInstanceState) {
-        // Inflate the layout for this fragment
         return inflater.inflate(R.layout.fragment_detail, container, false);
     }
+
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         ButterKnife.bind(this, view);
+        showLoading(true);
+        viewModel = ViewModelProviders.of(requireActivity()).get(DetailViewModel.class);
 
-        button.setOnClickListener(v -> {
-            NavDirections action  = DetailFragmentDirections.actionDetailToMovie();
-            Navigation.findNavController(view).navigate(action);
+        rvCasts.setLayoutManager(new LinearLayoutManager(getActivity(), LinearLayoutManager.HORIZONTAL, false));
+        castAdapter = new DetailCastAdapter(getActivity());
+
+        if (getArguments() != null) {
+            movie = DetailFragmentArgs.fromBundle(getArguments()).getMovie();
+            tvShow = DetailFragmentArgs.fromBundle(getArguments()).getTvShow();
+
+            if (movie != null) {
+                observeViewModel(parseInt(movie.getId_movie()));
+                initMovie(movie);
+                btnBrowser.setOnClickListener(new View.OnClickListener(){
+                    public void onClick(View v){
+                        Intent intent = new Intent();
+                        intent.setAction(Intent.ACTION_VIEW);
+                        intent.addCategory(Intent.CATEGORY_BROWSABLE);
+                        intent.setData(Uri.parse(homepage));
+                        startActivity(intent);
+                    }
+                });
+            } else {
+                observeViewModel(Integer.parseInt(tvShow.getId_show()));
+                initShow(tvShow);
+                btnBrowser.setOnClickListener(new View.OnClickListener(){
+                    public void onClick(View v){
+                        Intent intent = new Intent();
+                        intent.setAction(Intent.ACTION_VIEW);
+                        intent.addCategory(Intent.CATEGORY_BROWSABLE);
+                        intent.setData(Uri.parse(homepage));
+                        startActivity(intent);
+                    }
+                });
+            }
+        }
+    }
+
+    private void observeViewModel(int id) {
+        if (movie != null) {
+        viewModel.getMovieGenre(id).observe(requireActivity(), genres -> {
+            if (genres != null) {
+                for (int i = 0; i < genres.size(); i++) {
+                    Genre g = genres.get(i);
+                    if (i < genres.size() - 1) {
+                        detailGenre.append(g.getName() + " | ");
+                    } else {
+                        detailGenre.append(g.getName());
+                    }
+                }
+            }
         });
+            viewModel.getRuntime(id).observe(requireActivity(), observeRuntimeViewModel);
+            viewModel.getHomepage(id).observe(requireActivity(), observeHomepageViewModel);
+            viewModel.getCast(id).observe(requireActivity(), casts -> {
+                if (casts != null) {
+                    castAdapter.setCasts(casts);
+                    castAdapter.notifyDataSetChanged();
+                    rvCasts.setAdapter(castAdapter);
+                    showLoading(false);
+                }
+            });
+        } else {
+            viewModel.getTVGenre(id).observe(requireActivity(), genres -> {
+                if (genres != null) {
+                    for (int i = 0; i < genres.size(); i++) {
+                        Genre g = genres.get(i);
+                        if (i < genres.size() - 1) {
+                            detailGenre.append(g.getName() + " | ");
+                        } else {
+                            detailGenre.append(g.getName());
+                        }
+                    }
+                }
+            });
+            viewModel.getEpisodes(id).observe(requireActivity(), observeEpisodesViewModel);
+            viewModel.getTVHomepage(id).observe(requireActivity(), observeHomepageViewModel);
+            viewModel.getTVCast(id).observe(requireActivity(), casts -> {
+                if (casts != null) {
+                    castAdapter.setCasts(casts);
+                    castAdapter.notifyDataSetChanged();
+                    rvCasts.setAdapter(castAdapter);
+                    showLoading(false);
+                }
+            });
+        }
+    }
+    private Observer<String> observeHomepageViewModel = homepages -> {
+        if (homepages != null) {
+            homepage = homepages;
+        }
+    };
+    private Observer<String> observeEpisodesViewModel = episode -> {
+        if (episode != null) {
+            episodes = episode;
+            detailDuration.setText(episodes + " Episodes");
+        }
+    };
+    private Observer<String> observeRuntimeViewModel = runtime -> {
+        if (runtime != null) {
+            duration = runtime;
+            durationTemp = parseInt(duration);
+                while (durationTemp > 60) {
+                    durationTemp -= 60;
+                    hour++;
+                }
+                minute = durationTemp;
+            detailDuration.setText(hour + " h " + minute + " m");
+        }
+    };
+
+    private void initShow(TvShow tvShow) {
+        Objects.requireNonNull(((MainActivity) requireActivity()).getSupportActionBar()).setTitle(tvShow.getTitle());
+        Glide.with(getActivity()).load(Constants.BaseSetting.BASE_IMAGE_URL + tvShow.getCover()).into(detailCover);
+        Glide.with(getActivity()).load(Constants.BaseSetting.BASE_IMAGE_URL + tvShow.getPoster()).into(detailPoster);
+        detailTitle.setText(tvShow.getTitle());
+        detailDescription.setText(tvShow.getDescription());
+        detailDate.setText(tvShow.getReleaseDate());
+    }
+
+    private void initMovie(Movie movie) {
+        Objects.requireNonNull(((MainActivity) requireActivity()).getSupportActionBar()).setTitle(movie.getTitle());
+        Glide.with(getActivity()).load(Constants.BaseSetting.BASE_IMAGE_URL + movie.getCover()).into(detailCover);
+        Glide.with(getActivity()).load(Constants.BaseSetting.BASE_IMAGE_URL + movie.getPoster()).into(detailPoster);
+        detailTitle.setText(movie.getTitle());
+        detailDescription.setText(movie.getDescription());
+        detailDate.setText(movie.getReleaseDate());
+    }
+
+    private void showLoading(Boolean state) {
+        if (state) {
+            detailLoading.setVisibility(View.VISIBLE);
+            detailLid.setVisibility(View.VISIBLE);
+        } else {
+            detailLoading.setVisibility(View.GONE);
+            detailLid.setAlpha(1f);
+            detailLid.animate()
+                    .alpha(0f)
+                    .setDuration(1000)
+                    .setListener(new AnimatorListenerAdapter() {
+                        @Override
+                        public void onAnimationEnd(Animator animation) {
+                            detailLid.setVisibility(View.GONE);
+                        }
+                    });
+        }
     }
 }
